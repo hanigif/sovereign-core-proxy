@@ -7,25 +7,14 @@ app = Flask(__name__)
 
 # إعدادات الهوية السيادية
 SERVER_LOCATION = "Sweden/Stockholm"
-SOVEREIGN_ID = "SOV-CORE-2026"
+# الرابط الذي يستقبل التنبيهات في لوحة تحكم إمبراطوريتك
+EMPIRE_RECEIVER_URL = "https://my-empire.onrender.com/receive-intelligence"
 
 def scrub_data(raw_data):
-    """
-    محرك التطهير: يقوم بمسح وإخفاء البيانات الحساسة 
-    قبل السماح لها بالخروج من الحدود الرقمية السويدية.
-    """
+    """تطهير البيانات قبل خروجها من الحدود"""
     clean_data = raw_data.copy()
-    
-    # 1. إخفاء عنوان الـ IP (متطلب أساسي للـ GDPR)
-    clean_data['ip_address'] = "0.0.0.0"
-    
-    # 2. تشفير المعرفات الشخصية بختم زمن سيادي
-    if 'client_id' in clean_data:
-        clean_data['client_id'] = f"SOV_ENCRYPTED_{int(time.time())}"
-    
-    # 3. إضافة وسم التدقيق السيادي
-    clean_data['sovereign_audit_trail'] = f"{SERVER_LOCATION}-{SOVEREIGN_ID}"
-    
+    clean_data['ip_address'] = "0.0.0.0" # حماية الخصوصية بموجب GDPR
+    clean_data['sovereign_audit_trail'] = f"{SERVER_LOCATION}-ACTIVE"
     return clean_data
 
 @app.route('/')
@@ -34,7 +23,6 @@ def health_check():
 
 @app.route('/sovereign-gate', methods=['POST', 'OPTIONS'])
 def gate():
-    # معالجة طلبات الـ CORS (للسماح للمواقع بالاتصال بالبروكسي)
     if request.method == 'OPTIONS':
         response = app.make_default_options_response()
         response.headers['Access-Control-Allow-Origin'] = '*'
@@ -47,12 +35,21 @@ def gate():
         if not incoming_data:
             return jsonify({"status": "Empty Data"}), 400
             
-        # عملية التطهير
+        # 1. تطهير البيانات
         processed_data = scrub_data(incoming_data)
         
-        # هنا يتم تخزين البيانات أو توجيهها (سنقوم بربطها بالـ App.py لاحقاً)
-        print(f"Incoming Protected Data: {processed_data}")
+        # 2. إرسال تنبيه فوري للوحة التحكم (العقل المدبر)
+        try:
+            # نرسل اسم المصدر ونوع العملية ليتم عرضها في الجدول
+            requests.post(EMPIRE_RECEIVER_URL, json={
+                "source": "Sovereign Official Site",
+                "risk_level": "SECURE",
+                "status": "INTERCEPTED & SCRUBBED"
+            }, timeout=5)
+        except Exception as e:
+            print(f"Failed to notify dashboard: {e}")
         
+        # 3. الرد على الموقع بأن البيانات أصبحت آمنة
         res = jsonify({
             "status": "Secured",
             "node": SERVER_LOCATION,
@@ -65,6 +62,5 @@ def gate():
         return jsonify({"status": "Error", "message": str(e)}), 500
 
 if __name__ == '__main__':
-    # الحصول على المنفذ من إعدادات Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
